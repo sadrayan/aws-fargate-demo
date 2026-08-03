@@ -21,3 +21,7 @@ output "ecs_service_name" {
 output "service_discovery_namespace" {
   value = aws_service_discovery_private_dns_namespace.main.name
 }
+
+output "api_invoke_url" {
+  value = aws_apigatewayv2_stage.default.invoke_url
+}

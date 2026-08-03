@@ -124,12 +124,11 @@ resource "aws_security_group" "ecs_tasks" {
   description = "Fargate task SG for aws-fargate-demo"
   vpc_id      = aws_vpc.main.id
 
-  # ponytail: scoped to the VPC CIDR until #5 adds a VPC Link SG to reference instead.
   ingress {
-    from_port   = 8000
-    to_port     = 8000
-    protocol    = "tcp"
-    cidr_blocks = [aws_vpc.main.cidr_block]
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.vpc_link.id]
   }
 
   egress {
@@ -155,8 +154,9 @@ resource "aws_service_discovery_service" "app" {
   dns_config {
     namespace_id = aws_service_discovery_private_dns_namespace.main.id
 
+    # SRV (not A) so DiscoverInstances returns AWS_INSTANCE_PORT — the API Gateway Cloud Map integration needs it to know which port to hit.
     dns_records {
-      type = "A"
+      type = "SRV"
       ttl  = 10
     }
 
@@ -217,6 +217,7 @@ resource "aws_ecs_service" "app" {
 
   service_registries {
     registry_arn = aws_service_discovery_service.app.arn
+    port         = 8000
   }
 }
 
@@ -241,4 +242,56 @@ resource "aws_appautoscaling_policy" "ecs_cpu" {
     }
     target_value = 70
   }
+}
+
+resource "aws_security_group" "vpc_link" {
+  name        = "aws-fargate-demo-vpc-link"
+  description = "API Gateway VPC Link ENIs for aws-fargate-demo"
+  vpc_id      = aws_vpc.main.id
+
+  egress {
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    cidr_blocks = [aws_vpc.main.cidr_block]
+  }
+
+  tags = {
+    Name = "aws-fargate-demo-vpc-link"
+  }
+}
+
+resource "aws_apigatewayv2_vpc_link" "main" {
+  name               = "aws-fargate-demo"
+  subnet_ids         = aws_subnet.public[*].id
+  security_group_ids = [aws_security_group.vpc_link.id]
+}
+
+resource "aws_apigatewayv2_api" "main" {
+  name          = "aws-fargate-demo"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_integration" "app" {
+  api_id             = aws_apigatewayv2_api.main.id
+  integration_type   = "HTTP_PROXY"
+  integration_method = "ANY"
+  connection_type    = "VPC_LINK"
+  connection_id      = aws_apigatewayv2_vpc_link.main.id
+  integration_uri    = aws_service_discovery_service.app.arn
+
+  payload_format_version = "1.0"
+}
+
+# ponytail: single proxy route forwards everything (/health, /hello, ...) to the app instead of one route per endpoint.
+resource "aws_apigatewayv2_route" "proxy" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.app.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.main.id
+  name        = "$default"
+  auto_deploy = true
 }
