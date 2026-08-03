@@ -316,7 +316,9 @@ resource "aws_iam_role" "github_actions" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:sadrayan/aws-fargate-demo:*" }
+        # This org's OIDC tokens append immutable numeric IDs to the owner/repo names
+        # (repo:sadrayan@7121376/aws-fargate-demo@1321002159:...), not plain owner/repo.
+        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:sadrayan@*/aws-fargate-demo@*:*" }
       }
     }]
   })
@@ -372,6 +374,14 @@ resource "aws_iam_role_policy" "github_actions" {
         Effect   = "Allow"
         Action   = ["iam:*"]
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-fargate-demo-*"
+      },
+      {
+        # ListOpenIDConnectProviders doesn't support resource-level scoping; read-only lookup of the
+        # account's shared GitHub OIDC provider (owned by another project, see the data source above).
+        Sid      = "OidcProviderLookup"
+        Effect   = "Allow"
+        Action   = ["iam:ListOpenIDConnectProviders", "iam:GetOpenIDConnectProvider"]
+        Resource = "*"
       },
       {
         Sid      = "PassTaskRoles"
