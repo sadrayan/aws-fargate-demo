@@ -389,6 +389,19 @@ resource "aws_iam_role_policy" "github_actions" {
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = [aws_iam_role.ecs_task_execution.arn, aws_iam_role.ecs_task.arn]
+      },
+      {
+        Sid      = "Dashboard"
+        Effect   = "Allow"
+        Action   = ["cloudwatch:PutDashboard", "cloudwatch:GetDashboard", "cloudwatch:DeleteDashboards"]
+        Resource = "arn:aws:cloudwatch::${data.aws_caller_identity.current.account_id}:dashboard/aws-fargate-demo"
+      },
+      {
+        # ListDashboards doesn't support resource-level scoping.
+        Sid      = "DashboardList"
+        Effect   = "Allow"
+        Action   = "cloudwatch:ListDashboards"
+        Resource = "*"
       }
     ]
   })
