@@ -1,0 +1,22 @@
+[project]
+name = "aws-fargate-demo"
+version = "0.1.0"
+description = "Minimal FastAPI demo for ECS Fargate + API Gateway"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.35.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1",
+    "pytest==8.4.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["app/tests"]
+pythonpath = ["."]
