@@ -25,3 +25,7 @@ output "service_discovery_namespace" {
 output "api_invoke_url" {
   value = aws_apigatewayv2_stage.default.invoke_url
 }
+
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
+}

@@ -24,6 +24,8 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_support   = true
@@ -185,7 +187,7 @@ resource "aws_ecs_task_definition" "app" {
 
   container_definitions = jsonencode([{
     name      = "app"
-    image     = "${aws_ecr_repository.app.repository_url}:latest"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
     essential = true
     portMappings = [{
       containerPort = 8000
@@ -294,4 +296,89 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.main.id
   name        = "$default"
   auto_deploy = true
+}
+
+# ponytail: this account already has a GitHub OIDC provider (owned by another project's Terraform state,
+# tagged Project=color-by-number) — it's an account-wide singleton, so reuse it via data source rather than
+# fight over ownership of a resource this stack doesn't control the lifecycle of.
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+resource "aws_iam_role" "github_actions" {
+  name = "aws-fargate-demo-github-actions"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
+      Action    = "sts:AssumeRoleWithWebIdentity"
+      Condition = {
+        StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
+        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:sadrayan/aws-fargate-demo:*" }
+      }
+    }]
+  })
+}
+
+# ponytail: service-level action scoping (not AdministratorAccess) rather than per-resource least-privilege —
+# this stack's own resources double as the boundary; tighten further if this account hosts other stacks.
+resource "aws_iam_role_policy" "github_actions" {
+  name = "aws-fargate-demo-deploy"
+  role = aws_iam_role.github_actions.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "TerraformState"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+        Resource = ["arn:aws:s3:::terraform-state-golden-capybara", "arn:aws:s3:::terraform-state-golden-capybara/aws-fargate-demo/*"]
+      },
+      {
+        Sid      = "Networking"
+        Effect   = "Allow"
+        Action   = "ec2:*"
+        Resource = "*"
+      },
+      {
+        Sid      = "Compute"
+        Effect   = "Allow"
+        Action   = ["ecs:*", "application-autoscaling:*", "servicediscovery:*", "logs:*"]
+        Resource = "*"
+      },
+      {
+        Sid      = "Registry"
+        Effect   = "Allow"
+        Action   = "ecr:GetAuthorizationToken"
+        Resource = "*"
+      },
+      {
+        Sid      = "RegistryRepo"
+        Effect   = "Allow"
+        Action   = "ecr:*"
+        Resource = aws_ecr_repository.app.arn
+      },
+      {
+        Sid      = "Api"
+        Effect   = "Allow"
+        Action   = "apigateway:*"
+        Resource = "arn:aws:apigateway:us-east-1::/*"
+      },
+      {
+        Sid      = "Iam"
+        Effect   = "Allow"
+        Action   = ["iam:*"]
+        Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/aws-fargate-demo-*"
+      },
+      {
+        Sid      = "PassTaskRoles"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
+        Resource = [aws_iam_role.ecs_task_execution.arn, aws_iam_role.ecs_task.arn]
+      }
+    ]
+  })
 }

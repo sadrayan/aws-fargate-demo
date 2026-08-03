@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ROLE_ARN: arn:aws:iam::335447633812:role/aws-fargate-demo-github-actions
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.*"
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr-login
+
+      - name: Build and push image
+        env:
+          IMAGE_URI: ${{ steps.ecr-login.outputs.registry }}/aws-fargate-demo:${{ github.sha }}
+        run: |
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
+      - name: Terraform apply
+        working-directory: terraform
+        run: terraform apply -auto-approve -var="image_tag=${{ github.sha }}"
+
+      - name: Smoke test /health
+        working-directory: terraform
+        run: |
+          url="$(terraform output -raw api_invoke_url)health"
+          status=$(curl -s -o /tmp/body -w '%{http_code}' "$url")
+          body=$(cat /tmp/body)
+          echo "GET $url -> $status $body"
+          if [ "$status" != "200" ] || [ "$body" != '{"status":"ok"}' ]; then
+            echo "Smoke test failed"
+            exit 1
+          fi
