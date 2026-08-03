@@ -17,3 +17,9 @@ def test_hello_returns_demo_payload() -> None:
     body = response.json()
     assert isinstance(body, dict)
     assert body.get("message") == "Hello from Fargate demo"
+
+
+def test_burn_clamps_and_burns() -> None:
+    response = client.get("/burn", params={"seconds": 0.01})
+    assert response.status_code == 200
+    assert response.json() == {"burned_seconds": 0.1}

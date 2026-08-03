@@ -10,6 +10,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "boto3==1.43.63",
     "httpx==0.28.1",
     "pytest==8.4.1",
 ]
