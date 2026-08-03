@@ -179,9 +179,10 @@ resource "aws_ecs_task_definition" "app" {
   execution_role_arn       = aws_iam_role.ecs_task_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 
-  # ponytail: matches the arm64 image pushed by #2 (built on Apple Silicon); switch if the CI pipeline builds amd64 instead.
+  # ponytail: matches the amd64 image built by the GitHub Actions runner (ubuntu-latest); was ARM64
+  # for the original Apple-Silicon-built image (#2), broke once the CI pipeline (#6) started building.
   runtime_platform {
-    cpu_architecture        = "ARM64"
+    cpu_architecture        = "X86_64"
     operating_system_family = "LINUX"
   }
 
