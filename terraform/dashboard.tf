@@ -4,6 +4,10 @@
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "aws-fargate-demo"
 
+  # IAM grant and dashboard write land in the same apply; without this the
+  # PutDashboard call can race the policy attach and 403 (seen in practice).
+  depends_on = [aws_iam_role_policy.github_actions]
+
   dashboard_body = jsonencode({
     widgets = [
       {
